@@ -13,6 +13,12 @@
 :root[data-theme=dark] .hour-column.neutral{background:#303538;color:var(--ink)}:root[data-theme=dark] .hour-weather{color:#cbd0ce}:root[data-theme=dark] .activity-score{background:rgba(35,40,43,.88);color:#f4f5f2}:root[data-theme=dark] .ask-input button{background:#343a3d}:root[data-theme=dark] .map-overlay{background:rgba(32,37,39,.92);color:#e4e8e7}:root[data-theme=dark] .profile-dot{background:#f1f4f4;color:#303943}
 .chat-fab{display:none}
 
+/* Keep the map marker self-contained so Vite/Netlify cannot lose Leaflet's image assets. */
+.skycast-marker{background:transparent;border:0}
+.skycast-marker span{display:block;width:18px;height:18px;background:#2d99a7;border:3px solid #fff;border-radius:50%;box-shadow:0 3px 10px rgba(35,43,49,.35);position:relative}
+.skycast-marker span::after{content:'';position:absolute;left:50%;bottom:-8px;width:8px;height:8px;background:#2d99a7;transform:translateX(-50%) rotate(45deg);border-right:3px solid #fff;border-bottom:3px solid #fff}
+:root[data-theme=dark] .skycast-marker span{border-color:#222629;box-shadow:0 3px 10px rgba(0,0,0,.5)}
+
 /* Interaction polish */
 .day-card{min-width:0}
 .hour-columns{display:flex;overflow-x:auto;gap:14px;scrollbar-width:thin;padding:24px 2px 8px;min-width:0}
@@ -50,6 +56,10 @@
 .chat-input{padding:10px 12px;background:var(--paper);gap:8px}.chat-input input{height:36px;border-radius:13px;padding:7px 12px;background:var(--soft);border-color:transparent}.chat-input button{width:36px;height:36px;border-radius:12px;background:#303943;display:grid;place-items:center}
 :root[data-theme=dark] .chat-panel{box-shadow:0 22px 65px rgba(0,0,0,.35)}:root[data-theme=dark] .chat-head{background:var(--paper)}:root[data-theme=dark] .bubble.user{background:#f1f4f4;color:#303943;border-color:#f1f4f4}:root[data-theme=dark] .chat-input button{background:#f1f4f4;color:#303943}
 @media(max-width:600px){.chat-panel{top:116px;right:12px;left:auto;width:min(360px,calc(100vw - 24px));max-height:calc(100vh - 128px)}.chat-messages{height:210px}}
+
+/* English layout overrides */
+:root{font-family:'DM Sans','IBM Plex Sans Arabic',sans-serif;direction:ltr}
+.ask-copy,.search-results button,.favorite-row,.favorites-add-panel>button{text-align:left}
 
 /* Search results stay compact and never cast a page-sized hover shadow. */
 .search-results{max-height:292px;overflow-y:auto;box-shadow:0 12px 24px rgba(35,43,49,.12);border-color:var(--line);overscroll-behavior:contain}
