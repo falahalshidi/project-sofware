@@ -1,0 +1,102 @@
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import L from 'leaflet'
+import { ArrowUpRight, Bike, Bot, Cloud, Coffee, Globe2, LocateFixed, Map as MapIcon, Moon, Plus, Search, Send, Settings2, Sun, Trash2, Utensils, X } from 'lucide-react'
+import type { Place, WeatherData } from './types'
+
+const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787/api'
+const defaultPlace: Place = { id: '23.5880:58.3829', name: 'مسقط', country: 'Oman', latitude: 23.588, longitude: 58.3829, timezone: 'Asia/Muscat' }
+const labels: Record<number, string> = { 0: 'صافي', 1: 'غائم جزئيًا', 2: 'غائم جزئيًا', 3: 'غائم', 45: 'ضباب', 51: 'رذاذ', 61: 'مطر خفيف', 63: 'مطر', 65: 'مطر غزير', 80: 'زخات مطر', 95: 'عاصفة رعدية' }
+const icon = (code: number) => code >= 95 ? '⚡' : code >= 51 ? '🌦' : code >= 3 ? '☁' : '☀'
+const num = (value: unknown, fallback = 0) => typeof value === 'number' ? Math.round(value) : fallback
+
+export default function App() {
+  const [place, setPlace] = useState<Place>(() => JSON.parse(localStorage.getItem('skycast:place') || 'null') || defaultPlace)
+  const [favorites, setFavorites] = useState<Place[]>(() => JSON.parse(localStorage.getItem('skycast:favorites') || 'null') || [defaultPlace])
+  const [favoriteTemps, setFavoriteTemps] = useState<Record<string, number>>({})
+  const [placesOpen, setPlacesOpen] = useState(false)
+  const [favoriteQuery, setFavoriteQuery] = useState('')
+  const [favoriteResults, setFavoriteResults] = useState<Place[]>([])
+  const [weather, setWeather] = useState<WeatherData | null>(null)
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<Place[]>([])
+  const [unit, setUnit] = useState<'C' | 'F'>('C')
+  const [dark, setDark] = useState(() => localStorage.getItem('skycast:theme') === 'dark')
+  const [loading, setLoading] = useState(true)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatInput, setChatInput] = useState('')
+  const [isTyping, setIsTyping] = useState(false)
+  const chatMessagesRef = useRef<HTMLDivElement>(null)
+  const [messages, setMessages] = useState([{ role: 'bot', text: 'مرحبًا! اسألني عن طقس اليوم أو أفضل وقت لنشاطك.' }])
+
+  useEffect(() => { localStorage.setItem('skycast:place', JSON.stringify(place)); localStorage.setItem('skycast:favorites', JSON.stringify(favorites)); localStorage.setItem('skycast:theme', dark ? 'dark' : 'light'); document.documentElement.dataset.theme = dark ? 'dark' : 'light' }, [place, favorites, dark])
+  useEffect(() => { void loadWeather(place) }, [place])
+  useEffect(() => { const timer = setTimeout(() => { if (query.trim().length > 1) void searchPlaces(query) }, 350); return () => clearTimeout(timer) }, [query])
+  useEffect(() => { const timer = setTimeout(() => { if (favoriteQuery.trim().length > 1) void searchFavoritePlaces(favoriteQuery) }, 350); return () => clearTimeout(timer) }, [favoriteQuery])
+  useEffect(() => { void loadFavoriteTemperatures() }, [favorites])
+  useEffect(() => { if (chatMessagesRef.current) chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight }, [messages, isTyping])
+  useEffect(() => {
+    function closeSearch(event: MouseEvent) {
+      if (!(event.target as HTMLElement).closest('.ask-input')) setResults([])
+    }
+    function closeWithEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') { setResults([]); setQuery('') }
+    }
+    document.addEventListener('mousedown', closeSearch)
+    document.addEventListener('keydown', closeWithEscape)
+    return () => { document.removeEventListener('mousedown', closeSearch); document.removeEventListener('keydown', closeWithEscape) }
+  }, [])
+
+  async function loadWeather(target: Place) { setLoading(true); try { const response = await fetch(`${API}/weather?latitude=${target.latitude}&longitude=${target.longitude}`); setWeather(response.ok ? await response.json() : null) } catch { setWeather(null) } finally { setLoading(false) } }
+  async function searchPlaces(value: string) { try { const response = await fetch(`${API}/search?q=${encodeURIComponent(value)}`); const data = await response.json(); setResults(data.results || []) } catch { setResults([]) } }
+  async function searchFavoritePlaces(value: string) { try { const response = await fetch(`${API}/search?q=${encodeURIComponent(value)}`); const data = await response.json(); setFavoriteResults(data.results || []) } catch { setFavoriteResults([]) } }
+  async function loadFavoriteTemperatures() { const pairs = await Promise.all(favorites.map(async (item) => { try { const response = await fetch(`${API}/weather?latitude=${item.latitude}&longitude=${item.longitude}`); const data = await response.json(); return [item.id, num(data?.current?.temperature_2m)] as const } catch { return [item.id, 0] as const } })); setFavoriteTemps(Object.fromEntries(pairs)) }
+  function choosePlace(next: Place) { setPlace(next); setQuery(''); setResults([]) }
+  function useLocation() { navigator.geolocation?.getCurrentPosition(async (position) => { const latitude = position.coords.latitude; const longitude = position.coords.longitude; try { const response = await fetch(`${API}/reverse-geocode?latitude=${latitude}&longitude=${longitude}`); const placeName = await response.json(); choosePlace({ id: `${latitude}:${longitude}`, name: placeName.name || 'موقعي الحالي', country: placeName.country || 'GPS', latitude, longitude }) } catch { choosePlace({ id: `${latitude}:${longitude}`, name: 'موقعي الحالي', country: 'GPS', latitude, longitude }) } }) }
+  function addFavorite() { if (!favorites.some((item) => item.id === place.id)) setFavorites([...favorites, place]) }
+  function addPlace(next: Place) { if (!favorites.some((item) => item.id === next.id)) setFavorites([...favorites, next]); choosePlace(next); setPlacesOpen(false); setFavoriteQuery(''); setFavoriteResults([]) }
+  function removeFavorite(id: string) { setFavorites(favorites.filter((item) => item.id !== id)) }
+  async function ask(text = chatInput) {
+    const question = text.trim()
+    if (!question || isTyping) return
+    setMessages((items) => [...items, { role: 'user', text: question }])
+    setChatInput('')
+    if (/وين|أين|موقعي|موقعك|موقعّي/.test(question)) {
+      setMessages((items) => [...items, { role: 'bot', text: `موقعك المحدد حاليًا هو ${place.name}${place.country ? `، ${place.country}` : ''}. إذا أردت استخدام موقع الجهاز اضغط «موقعي الحالي».` }])
+      return
+    }
+    setIsTyping(true)
+    try {
+      const response = await fetch(`${API}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, weather, location: { name: place.name, country: place.country, latitude: place.latitude, longitude: place.longitude } }) })
+      const data = await response.json()
+      setMessages((items) => [...items, { role: 'bot', text: data.answer || data.message || 'تعذر الحصول على إجابة.' }])
+    } catch { setMessages((items) => [...items, { role: 'bot', text: 'تعذر الاتصال بمساعد الطقس الآن.' }]) }
+    finally { setIsTyping(false) }
+  }
+
+  const current = weather?.current
+  const daily = weather?.daily
+  const hourly = weather?.hourly
+  const currentCode = num(current?.weather_code)
+  // Keep the headline on the measured current temperature; show feels-like
+  // separately so it cannot be confused with the phone's main temperature.
+  const temperature = num(current?.temperature_2m)
+  const displayTemperature = unit === 'C' ? temperature : Math.round(temperature * 9 / 5 + 32)
+  const dayAhead = useMemo(() => hourly ? Array.from({ length: Math.min(24, hourly.time?.length || 0) }, (_, index) => ({ hour: new Date(String(hourly.time?.[index])).toLocaleTimeString('en', { hour: 'numeric' }), temp: num(hourly.temperature_2m?.[index]), code: num(hourly.weather_code?.[index]) })) : [], [hourly])
+  const activities = [{ title: 'قهوة', detail: 'أفضل وقت قبل 2 م', tone: 'sand', icon: <Coffee size={42} strokeWidth={1.5} />, score: 'ممتاز' }, { title: 'ركوب الدراجة', detail: 'أفضل وقت قبل 5 م', tone: 'blue', icon: <Bike size={42} strokeWidth={1.5} />, score: 'رائع' }, { title: 'عشاء', detail: 'أفضل وقت بعد 7 م', tone: 'stone', icon: <Utensils size={42} strokeWidth={1.5} />, score: 'جيد' }]
+
+  return <div className="app-shell">
+    <header className="app-header"><div className="brand"><span className="brand-symbol"><Cloud size={21} /></span><strong>SkyCast</strong><span className="brand-muted">Weather</span></div><div className="header-center"><span className="live-dot" />طقس مباشر · {place.name}</div><div className="header-actions"><button className="header-link" onClick={() => setChatOpen(true)}><Bot size={17} />المساعد</button><button className="circle-btn" onClick={() => setDark(!dark)}>{dark ? <Sun size={17} /> : <Moon size={17} />}</button><button className="circle-btn" onClick={() => setUnit(unit === 'C' ? 'F' : 'C')}>°{unit === 'C' ? 'F' : 'C'}</button></div></header>
+    <main className="weather-canvas">
+      <section className="ask-bar"><button className="ask-copy" onClick={() => { setResults([]); setChatOpen(true) }}><Bot size={18} /><span>اسألني عن طقس اليوم</span></button><div className="ask-input"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="اكتب اسم مدينة للبحث..." /><button onClick={() => { setResults([]); setChatOpen(true) }} aria-label="فتح مساعد الطقس"><ArrowUpRight size={19} /></button>{results.length > 0 && <div className="search-results">{results.map((item) => <button key={item.id} onClick={() => choosePlace(item)}><Globe2 size={15} /><span><b>{item.name}</b><small>{[item.admin1, item.country].filter(Boolean).join('، ')}</small></span></button>)}</div>}</div><button className="location-link" onClick={() => { setResults([]); useLocation() }}><LocateFixed size={16} />موقعي الحالي</button></section>
+      <section className="weather-layout">
+        <div className="day-card paper-card"><div className="card-top"><div><span className="kicker">نظرة اليوم</span><h1>اليوم أمامك</h1><p>اسحب الساعات يمينًا ويسارًا لمشاهدة بقية اليوم.</p></div><button className="more-btn"><Settings2 size={17} /></button></div><div className="hour-columns">{dayAhead.map((item, index) => <div key={`${item.hour}-${index}`} className={`hour-column ${index === 0 ? 'is-current' : ''}`}><strong>{item.temp}°</strong><span className="hour-weather">{icon(item.code)}</span><small>{item.hour}</small></div>)}</div><div className="activity-head"><h2>وش يناسبك اليوم؟</h2><span>اقتراحات مبنية على الطقس</span></div><div className="activity-grid">{activities.map((item) => <div className={`activity-card ${item.tone}`} key={item.title}><span className="activity-score">{item.score}</span><div className="activity-visual">{item.icon}</div><h3>{item.title}</h3><p>{item.detail}</p></div>)}</div></div>
+        <aside className="today-column"><div className="today-card paper-card"><span className="kicker">طقس الآن</span><h2>درجة الحرارة الآن</h2><div className="today-temp">{loading ? '—' : displayTemperature}°</div><div className="today-status"><span>{icon(currentCode)}</span>{labels[currentCode] || 'صافي'}</div><div className="clock-grid"><div><strong>{daily ? new Date(String(daily.sunrise?.[0])).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : '06:03'}</strong><small>شروق</small></div><div><strong>{daily ? new Date(String(daily.sunset?.[0])).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }) : '06:00'}</strong><small>غروب</small></div></div><div className="today-location">{new Date().toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' })}<br /><strong>{place.name}, {place.country}</strong></div></div><div className="quick-metrics paper-card"><Metric label="العظمى" value={`${num(daily?.temperature_2m_max?.[0], 34)}°`} /><Metric label="الصغرى" value={`${num(daily?.temperature_2m_min?.[0], 24)}°`} /><Metric label="المحسوس" value={`${num(current?.apparent_temperature, 30)}°`} /><Metric label="الرطوبة" value={`${num(current?.relative_humidity_2m, 47)}%`} /></div></aside>
+      </section>
+      <section className="below-grid"><div className="map-card paper-card"><div className="section-head"><div><span className="kicker">استكشف العالم</span><h2>خريطة الطقس</h2></div><button className="location-link"><MapIcon size={15} />فتح الخريطة</button></div><WeatherMap place={place} /></div><div className="favorites-card paper-card"><div className="section-head"><div><span className="kicker">محفوظاتك</span><h2>أماكني</h2></div><button className="circle-btn" onClick={() => setPlacesOpen(!placesOpen)}><Plus size={17} /></button></div>{placesOpen && <div className="favorites-add-panel"><div className="favorites-search"><Search size={15} /><input autoFocus value={favoriteQuery} onChange={(event) => setFavoriteQuery(event.target.value)} placeholder="ابحث عن مدينة لإضافتها..." /></div>{favoriteResults.map((item) => <button key={item.id} onClick={() => addPlace(item)}><b>{item.name}</b><small>{[item.admin1, item.country].filter(Boolean).join('، ')}</small><Plus size={14} /></button>)}</div>}{favorites.slice(0, 4).map((item) => <button className={`favorite-row ${item.id === place.id ? 'active' : ''}`} key={item.id} onClick={() => choosePlace(item)}><span className="fav-icon">{icon(currentCode)}</span><span><b>{item.name}</b><small>{item.country}</small></span><strong>{favoriteTemps[item.id] ? `${unit === 'C' ? favoriteTemps[item.id] : Math.round(favoriteTemps[item.id] * 9 / 5 + 32)}°` : '—'}</strong>{favorites.length > 1 && <i onClick={(event) => { event.stopPropagation(); removeFavorite(item.id) }}><Trash2 size={14} /></i>}</button>)}</div></section>
+    </main>
+    {chatOpen && <div className="chat-panel"><div className="chat-head"><div><b>SkyCast AI</b><small>مساعد الطقس · {place.name}</small></div><button onClick={() => setChatOpen(false)} aria-label="إغلاق الشات"><X size={17} /></button></div><div className="chat-messages" ref={chatMessagesRef}>{messages.map((message, index) => <div className={`bubble ${message.role}`} key={index}>{message.text}</div>)}{isTyping && <div className="bubble bot typing" aria-label="المساعد يكتب"><i></i><i></i><i></i></div>}</div><div className="chat-suggestions"><button onClick={() => void ask('هل الجو مناسب للمشي؟')}>مناسب للمشي؟</button><button onClick={() => void ask('هل أحتاج مظلة اليوم؟')}>أحتاج مظلة؟</button></div><div className="chat-input"><input value={chatInput} onChange={(event) => setChatInput(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && void ask()} placeholder="اكتب سؤالك..." disabled={isTyping} /><button onClick={() => void ask()} disabled={isTyping} aria-label="إرسال السؤال"><Send size={16} /></button></div></div>}
+  </div>
+}
+
+function Metric({ label, value }: { label: string; value: string }) { return <div className="metric-cell"><strong>{value}</strong><span>{label}</span></div> }
+function WeatherMap({ place }: { place: Place }) { const mapElement = useRef<HTMLDivElement>(null); const mapRef = useRef<L.Map | null>(null); const markerRef = useRef<L.Marker | null>(null); useEffect(() => { if (!mapElement.current || mapRef.current) return; const map = L.map(mapElement.current, { zoomControl: false }).setView([place.latitude, place.longitude], 4); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(map); L.control.zoom({ position: 'bottomright' }).addTo(map); markerRef.current = L.marker([place.latitude, place.longitude]).addTo(map).bindPopup(`<b>${place.name}</b>`).openPopup(); mapRef.current = map; return () => { map.remove(); mapRef.current = null } }, []); useEffect(() => { if (mapRef.current && markerRef.current) { mapRef.current.flyTo([place.latitude, place.longitude], 4); markerRef.current.setLatLng([place.latitude, place.longitude]).setPopupContent(`<b>${place.name}</b>`).openPopup() } }, [place]); return <div className="map-wrap"><div ref={mapElement} className="leaflet-map" /><div className="map-overlay"><span>🌡 حرارة</span><span>🌧 مطر</span><span>💨 رياح</span></div></div> }
