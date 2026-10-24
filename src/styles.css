@@ -22,6 +22,7 @@
 /* Interaction polish */
 .day-card{min-width:0}
 .hour-columns{display:flex;overflow-x:auto;gap:14px;scrollbar-width:thin;padding:24px 2px 8px;min-width:0}
+.hour-loading{min-height:228px;flex:1;display:grid;place-items:center;color:var(--muted);font-size:12px}
 .hour-column{flex:0 0 calc((100% - 56px)/5);min-width:104px;background:var(--soft)!important;color:var(--ink);border:1px solid transparent}
 .hour-column.is-current{background:#edf8f7!important;border-color:#b8ded9}
 .activity-visual{background:transparent!important;box-shadow:none;font-size:0!important;color:#526067;height:86px}
