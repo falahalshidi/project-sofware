@@ -3,7 +3,20 @@ import L from 'leaflet'
 import { ArrowUpRight, Bike, Bot, Cloud, Coffee, Globe2, LocateFixed, Map as MapIcon, Moon, Plus, Search, Send, Settings2, Sun, Trash2, Utensils, X } from 'lucide-react'
 import type { Place, WeatherData } from './types'
 
-const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787/api'
+const configuredApi = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+// A localhost API URL is useful during development, but it can never work
+// from the deployed Netlify page. The browser fallback below keeps the main
+// weather experience working when only the static client is deployed.
+const API = configuredApi && !/localhost|127\.0\.0\.1/.test(configuredApi)
+  ? configuredApi
+  : import.meta.env.DEV ? (configuredApi || 'http://localhost:8787/api') : ''
+const weatherUrl = (latitude: number, longitude: number) => `https://api.open-meteo.com/v1/forecast?${new URLSearchParams({
+  latitude: String(latitude), longitude: String(longitude), timezone: 'auto', forecast_days: '14',
+  current: 'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,weather_code,cloud_cover,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility,uv_index',
+  hourly: 'temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m,relative_humidity_2m,cloud_cover,uv_index',
+  daily: 'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max,precipitation_sum,wind_speed_10m_max',
+})}`
+const searchUrl = (query: string) => `https://geocoding-api.open-meteo.com/v1/search?${new URLSearchParams({ name: query, count: '8', language: 'ar', format: 'json' })}`
 const defaultPlace: Place = { id: '23.5880:58.3829', name: 'مسقط', country: 'Oman', latitude: 23.588, longitude: 58.3829, timezone: 'Asia/Muscat' }
 const labels: Record<number, string> = { 0: 'صافي', 1: 'غائم جزئيًا', 2: 'غائم جزئيًا', 3: 'غائم', 45: 'ضباب', 51: 'رذاذ', 61: 'مطر خفيف', 63: 'مطر', 65: 'مطر غزير', 80: 'زخات مطر', 95: 'عاصفة رعدية' }
 const icon = (code: number) => code >= 95 ? '⚡' : code >= 51 ? '🌦' : code >= 3 ? '☁' : '☀'
@@ -46,10 +59,10 @@ export default function App() {
     return () => { document.removeEventListener('mousedown', closeSearch); document.removeEventListener('keydown', closeWithEscape) }
   }, [])
 
-  async function loadWeather(target: Place) { setLoading(true); try { const response = await fetch(`${API}/weather?latitude=${target.latitude}&longitude=${target.longitude}`); setWeather(response.ok ? await response.json() : null) } catch { setWeather(null) } finally { setLoading(false) } }
-  async function searchPlaces(value: string) { try { const response = await fetch(`${API}/search?q=${encodeURIComponent(value)}`); const data = await response.json(); setResults(data.results || []) } catch { setResults([]) } }
-  async function searchFavoritePlaces(value: string) { try { const response = await fetch(`${API}/search?q=${encodeURIComponent(value)}`); const data = await response.json(); setFavoriteResults(data.results || []) } catch { setFavoriteResults([]) } }
-  async function loadFavoriteTemperatures() { const pairs = await Promise.all(favorites.map(async (item) => { try { const response = await fetch(`${API}/weather?latitude=${item.latitude}&longitude=${item.longitude}`); const data = await response.json(); return [item.id, num(data?.current?.temperature_2m)] as const } catch { return [item.id, 0] as const } })); setFavoriteTemps(Object.fromEntries(pairs)) }
+  async function loadWeather(target: Place) { setLoading(true); try { const response = await fetch(API ? `${API}/weather?latitude=${target.latitude}&longitude=${target.longitude}` : weatherUrl(target.latitude, target.longitude)); setWeather(response.ok ? await response.json() : null) } catch { setWeather(null) } finally { setLoading(false) } }
+  async function searchPlaces(value: string) { try { const response = await fetch(API ? `${API}/search?q=${encodeURIComponent(value)}` : searchUrl(value)); const data = await response.json(); const items = data.results || []; setResults(items.map((item: any) => ({ id: item.id || `${item.latitude}:${item.longitude}`, name: item.name, country: item.country || item.country_code, admin1: item.admin1, latitude: item.latitude, longitude: item.longitude, timezone: item.timezone }))) } catch { setResults([]) } }
+  async function searchFavoritePlaces(value: string) { try { const response = await fetch(API ? `${API}/search?q=${encodeURIComponent(value)}` : searchUrl(value)); const data = await response.json(); const items = data.results || []; setFavoriteResults(items.map((item: any) => ({ id: item.id || `${item.latitude}:${item.longitude}`, name: item.name, country: item.country || item.country_code, admin1: item.admin1, latitude: item.latitude, longitude: item.longitude, timezone: item.timezone }))) } catch { setFavoriteResults([]) } }
+  async function loadFavoriteTemperatures() { const pairs = await Promise.all(favorites.map(async (item) => { try { const response = await fetch(API ? `${API}/weather?latitude=${item.latitude}&longitude=${item.longitude}` : weatherUrl(item.latitude, item.longitude)); const data = await response.json(); return [item.id, num(data?.current?.temperature_2m)] as const } catch { return [item.id, 0] as const } })); setFavoriteTemps(Object.fromEntries(pairs)) }
   function choosePlace(next: Place) { setPlace(next); setQuery(''); setResults([]) }
   function useLocation() { navigator.geolocation?.getCurrentPosition(async (position) => { const latitude = position.coords.latitude; const longitude = position.coords.longitude; try { const response = await fetch(`${API}/reverse-geocode?latitude=${latitude}&longitude=${longitude}`); const placeName = await response.json(); choosePlace({ id: `${latitude}:${longitude}`, name: placeName.name || 'موقعي الحالي', country: placeName.country || 'GPS', latitude, longitude }) } catch { choosePlace({ id: `${latitude}:${longitude}`, name: 'موقعي الحالي', country: 'GPS', latitude, longitude }) } }) }
   function addFavorite() { if (!favorites.some((item) => item.id === place.id)) setFavorites([...favorites, place]) }
