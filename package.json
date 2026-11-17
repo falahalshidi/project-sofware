@@ -11,6 +11,7 @@
     "start": "node dist-server/index.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.119.0",
     "concurrently": "latest",
     "cors": "latest",
     "dotenv": "latest",
@@ -22,8 +23,8 @@
     "react-dom": "latest"
   },
   "devDependencies": {
-    "@types/express": "latest",
     "@types/cors": "latest",
+    "@types/express": "latest",
     "@types/leaflet": "latest",
     "@types/node": "latest",
     "@types/react": "latest",
