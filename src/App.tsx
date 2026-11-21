@@ -3,7 +3,7 @@ import L from 'leaflet'
 import { ArrowUpRight, Bike, Bot, Cloud, Coffee, Globe2, GitCompareArrows, LocateFixed, LogOut, Map as MapIcon, Moon, Plus, Search, Send, Settings2, Sun, Trash2, UserCircle, Utensils, X } from 'lucide-react'
 import type { User } from '@supabase/supabase-js'
 import type { Place, WeatherData } from './types'
-import { supabase, type PlaceRow } from './lib/supabase'
+import { setRememberSession, supabase, type PlaceRow } from './lib/supabase'
 
 const configuredApi = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 // A localhost API URL is useful during development, but it can never work
@@ -74,11 +74,16 @@ export default function App() {
   const [authError, setAuthError] = useState('')
   const [authNotice, setAuthNotice] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
+  const [rememberMe, setRememberMe] = useState(true)
+  const [authResolved, setAuthResolved] = useState(!supabase)
   const [cloudReady, setCloudReady] = useState(false)
 
   useEffect(() => {
-    if (!supabase) return
-    void supabase.auth.getSession().then(({ data }) => { setUser(data.session?.user ?? null) })
+    if (!supabase) { setAuthResolved(true); return }
+    void supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null)
+      setAuthResolved(true)
+    }).catch(() => setAuthResolved(true))
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setUser(session?.user ?? null))
     return () => listener.subscription.unsubscribe()
   }, [])
@@ -131,6 +136,7 @@ export default function App() {
   async function submitAuth(event: FormEvent) {
     event.preventDefault(); setAuthBusy(true); setAuthError(''); setAuthNotice('')
     if (!supabase) { setAuthError('Supabase is not configured. Add the VITE_SUPABASE variables to the environment.'); setAuthBusy(false); return }
+    setRememberSession(rememberMe)
     const result = authMode === 'signup'
       ? await supabase.auth.signUp({ email: authEmail.trim(), password: authPassword, options: { data: { display_name: authDisplayName.trim() } } })
       : await supabase.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword })
@@ -196,6 +202,11 @@ export default function App() {
     })
   }, [hourly, current?.time])
   const activities = [{ title: 'Coffee', detail: 'Best before 2 PM', tone: 'sand', icon: <Coffee size={42} strokeWidth={1.5} />, score: 'Excellent' }, { title: 'Cycling', detail: 'Best before 5 PM', tone: 'blue', icon: <Bike size={42} strokeWidth={1.5} />, score: 'Great' }, { title: 'Dinner', detail: 'Best after 7 PM', tone: 'stone', icon: <Utensils size={42} strokeWidth={1.5} />, score: 'Good' }]
+
+  const authForm = <section className="auth-card"><span className="kicker">SkyCast account</span><h2>{authMode === 'signin' ? 'Welcome back' : 'Create your account'}</h2><p className="auth-subtitle">Save places and keep your weather profile with you.</p><form onSubmit={(event) => void submitAuth(event)}>{authMode === 'signup' && <input value={authDisplayName} onChange={(event) => setAuthDisplayName(event.target.value)} placeholder="Display name" autoComplete="name" />}{<input value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Email" type="email" autoComplete="email" required />}{<input value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder="Password" type="password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} minLength={6} required />}<label className="remember-row"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} /> <span>Remember me on this device</span></label>{authError && <p className="auth-error">{authError}</p>}{authNotice && <p className="auth-notice">{authNotice}</p>}<button className="auth-submit" disabled={authBusy}>{authBusy ? 'Working…' : authMode === 'signin' ? 'Sign in' : 'Create account'}</button></form><button className="auth-switch" onClick={() => { setAuthMode(authMode === 'signin' ? 'signup' : 'signin'); setAuthError(''); setAuthNotice('') }}>{authMode === 'signin' ? 'Create a new account' : 'I already have an account'}</button></section>
+
+  if (!authResolved) return <div className="auth-gate auth-loading">Loading your account…</div>
+  if (!user) return <div className="auth-gate">{authForm}</div>
 
   return <div className="app-shell">
     <header className="app-header"><div className="brand"><span className="brand-symbol"><Cloud size={21} /></span><strong>SkyCast</strong><span className="brand-muted">Weather</span></div><div className="header-center"><span className="live-dot" />Live weather · {place.name}</div><div className="header-actions"><button className="header-link" onClick={() => { setChatOpen(true); void logActivity('assistant_opened') }}><Bot size={17} />Assistant</button><button className="circle-btn" onClick={() => { setDark(!dark); void logActivity('theme_changed', { theme: dark ? 'light' : 'dark' }) }}>{dark ? <Sun size={17} /> : <Moon size={17} />}</button><button className="circle-btn" onClick={() => { setUnit(unit === 'C' ? 'F' : 'C'); void logActivity('unit_changed', { unit: unit === 'C' ? 'F' : 'C' }) }}>°{unit === 'C' ? 'F' : 'C'}</button>{user ? <button className="profile-dot" onClick={() => setAuthOpen(true)} title={user.email || 'Profile'}><UserCircle size={18} /></button> : <button className="header-link auth-link" onClick={() => { setAuthMode('signin'); setAuthOpen(true) }}><UserCircle size={17} />Sign in</button>}</div></header>
